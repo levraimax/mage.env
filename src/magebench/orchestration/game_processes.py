@@ -13,7 +13,7 @@ from pathlib import Path
 from magebench.common.llm_cost import DEFAULT_LLM_PROVIDER, required_api_key_env
 from magebench.common.log import get_logger
 from magebench.common.process_manager import ProcessManager
-from magebench.orchestration.config import Config, PilotPlayer
+from magebench.orchestration.config import Config, MDPPlayer, PilotPlayer
 
 logger = get_logger(__name__)
 
@@ -209,6 +209,36 @@ def start_sleepwalker_client(
         env=env,
         log_file=log_path,
     )
+
+
+def start_mdp_client(
+    pm: ProcessManager,
+    project_root: Path,
+    config: Config,
+    player: MDPPlayer,
+    log_path: Path,
+) -> subprocess.Popen:
+    """Start a custom MDP player via the XMage MCP bridge."""
+    assert player.policy, f"MDP player {player.name} has no policy"
+    env = {"PYTHONUNBUFFERED": "1"}
+    args = [
+        sys.executable,
+        "-m",
+        "magebench.pilot.mdp",
+        "--server",
+        config.server,
+        "--port",
+        str(config.port),
+        "--username",
+        player.name,
+        "--project-root",
+        str(project_root),
+        "--policy",
+        player.policy,
+    ]
+    if player.deck:
+        args.extend(["--deck", str(project_root / player.deck)])
+    return pm.start_process(args=args, cwd=project_root, env=env, log_file=log_path)
 
 
 def start_replay_client(

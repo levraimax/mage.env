@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from magebench.common.log import get_logger
 from magebench.game.game_log import read_decklist
 from magebench.game.harness_epoch import HARNESS_EPOCH
-from magebench.orchestration.config import Config, PilotPlayer, Player
+from magebench.orchestration.config import Config, MDPPlayer, PilotPlayer, Player
 
 if TYPE_CHECKING:
     from magebench.orchestration.batch_coordination import GameSession
@@ -117,6 +117,7 @@ def write_game_meta(game_dir: Path, config: Config, project_root: Path) -> None:
     all_players: list[tuple[Player, str]] = [
         *((p, "pilot") for p in config.pilot_players),
         *((p, "sleepwalker") for p in config.sleepwalker_players),
+        *((p, "mdp") for p in config.mdp_players),
         *((p, "cpu") for p in config.cpu_players),
     ]
     for player, ptype in all_players:
@@ -129,6 +130,9 @@ def write_game_meta(game_dir: Path, config: Config, project_root: Path) -> None:
             entry["deck_name"] = player.deck_name
         if player.deck_strategy:
             entry["deck_strategy"] = player.deck_strategy
+        if isinstance(player, MDPPlayer):
+            assert player.policy is not None, f"MDP player {player.name} has no policy"
+            entry["policy"] = player.policy
         if isinstance(player, PilotPlayer):
             assert player.model, f"Pilot player {player.name} has no model (check preset)"
             entry["model"] = player.model

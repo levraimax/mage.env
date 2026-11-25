@@ -24,6 +24,7 @@ from magebench.orchestration.game_finalization import (
 )
 from magebench.orchestration.game_processes import (
     start_gui_client,
+    start_mdp_client,
     start_observer_client,
     start_pilot_client,
     start_replay_client,
@@ -84,7 +85,7 @@ def setup_game(
             cross_game_format_picks=cross_game_format_picks,
         )
         if used_player_names is not None:
-            all_players = game_config.pilot_players + game_config.sleepwalker_players
+            all_players = game_config.pilot_players + game_config.sleepwalker_players + game_config.mdp_players
             for player in all_players:
                 assert player.name not in used_player_names, (
                     f"Duplicate player name {player.name!r} across parallel games — "
@@ -142,7 +143,10 @@ def setup_game(
     )
 
     bridge_count = (
-        len(game_config.sleepwalker_players) + len(game_config.pilot_players) + len(game_config.replay_players)
+        len(game_config.sleepwalker_players)
+        + len(game_config.pilot_players)
+        + len(game_config.mdp_players)
+        + len(game_config.replay_players)
     )
 
     try:
@@ -178,6 +182,12 @@ def setup_game(
                     game_dir=game_dir,
                 )
                 session.pilot_procs.append((pilot_player.name, proc))
+
+            for mdp_player in game_config.mdp_players:
+                log_path = game_dir / f"{mdp_player.name}_mdp.log"
+                logger.info("%sMDP (%s) log: %s", game_label, mdp_player.name, log_path)
+                proc = start_mdp_client(pm, project_root, game_config, mdp_player, log_path)
+                session.pilot_procs.append((mdp_player.name, proc))
 
             for replay_player in game_config.replay_players:
                 log_path = game_dir / f"{replay_player.name}_replay.log"

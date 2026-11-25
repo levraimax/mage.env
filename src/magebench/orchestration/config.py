@@ -56,6 +56,17 @@ class PilotPlayer:
 
 
 @dataclass
+class MDPPlayer:
+    """Custom MDP policy: Python policy connected to the XMage bridge."""
+
+    name: str
+    deck: str | None = None
+    deck_name: str | None = None
+    deck_strategy: str | None = None
+    policy: str | None = None  # Python file or dotted module
+
+
+@dataclass
 class ReplayPlayer:
     """Replay pilot: scripted MCP tool calls for golden tests."""
 
@@ -77,7 +88,7 @@ class CpuPlayer:
 
 
 # Union type for all player types
-Player = SleepwalkerPlayer | PilotPlayer | ReplayPlayer | CpuPlayer
+Player = SleepwalkerPlayer | PilotPlayer | MDPPlayer | ReplayPlayer | CpuPlayer
 
 # XMage server username constraints (from Mage.Server/config/config.xml)
 MIN_USERNAME_LENGTH = 3
@@ -579,6 +590,7 @@ class Config:
     # Player lists by type
     sleepwalker_players: list[SleepwalkerPlayer] = field(default_factory=list)
     pilot_players: list[PilotPlayer] = field(default_factory=list)
+    mdp_players: list[MDPPlayer] = field(default_factory=list)
     replay_players: list[ReplayPlayer] = field(default_factory=list)
     cpu_players: list[CpuPlayer] = field(default_factory=list)
 
@@ -672,6 +684,17 @@ class Config:
                     )
                     llm_players.append((p, has_explicit_name))
                     self.pilot_players.append(p)
+                elif player_type == "mdp":
+                    policy = player.get("policy")
+                    assert isinstance(policy, str) and policy, (
+                        f"MDP player {name!r} requires a non-empty 'policy' path or module"
+                    )
+                    policy_path = Path(policy)
+                    if not policy_path.is_absolute():
+                        sibling_policy = self.config_file.parent / policy_path
+                        if sibling_policy.exists():
+                            policy = str(sibling_policy)
+                    self.mdp_players.append(MDPPlayer(name=name, deck=deck, policy=policy))
                 elif player_type in ("potato", "staller"):
                     raise AssertionError(
                         f"Player type {player_type!r} has been removed. "
@@ -685,7 +708,7 @@ class Config:
                     raise AssertionError(f"Unknown player type {player_type!r}")
 
             # Validate: only pilot players can have deck="choice"
-            non_pilot = self.sleepwalker_players + self.replay_players + self.cpu_players
+            non_pilot = self.sleepwalker_players + self.mdp_players + self.replay_players + self.cpu_players
             non_pilot_choice = [p.name for p in non_pilot if p.deck == "choice"]
             assert not non_pilot_choice, (
                 f"deck='choice' requires a pilot player (has LLM), but found on non-pilot player(s): {non_pilot_choice}"
@@ -743,6 +766,12 @@ class Config:
             if p.deck:
                 d["deck"] = p.deck
             players.append(d)
+        for p in self.mdp_players:
+            assert p.policy is not None, f"MDP player {p.name} has no policy"
+            d = {"type": "mdp", "name": p.name, "policy": p.policy}
+            if p.deck:
+                d["deck"] = p.deck
+            players.append(d)
         for p in self.replay_players:
             d = {"type": "replay", "name": p.name}
             if p.deck:
@@ -765,13 +794,25 @@ class Config:
     def resolve_random_decks(self, project_root: Path) -> None:
         """Replace any deck="random" with a randomly chosen deck from the registry."""
         # Fail fast if any player still has deck="choice" — caller must resolve those first
-        all_typed_players = self.sleepwalker_players + self.pilot_players + self.replay_players + self.cpu_players
+        all_typed_players = (
+            self.sleepwalker_players
+            + self.pilot_players
+            + self.mdp_players
+            + self.replay_players
+            + self.cpu_players
+        )
         choice_names = [p.name for p in all_typed_players if p.deck == "choice"]
         assert not choice_names, (
             f"Unresolved deck='choice' for {choice_names} — call resolve_choice_decks() before resolve_random_decks()"
         )
 
-        all_players = self.sleepwalker_players + self.pilot_players + self.replay_players + self.cpu_players
+        all_players = (
+            self.sleepwalker_players
+            + self.pilot_players
+            + self.mdp_players
+            + self.replay_players
+            + self.cpu_players
+        )
         if not any(p.deck == "random" for p in all_players):
             return
 
@@ -815,7 +856,13 @@ class Config:
         Called after all deck resolution is complete. Looks up static deck paths
         in the registry by matching card content.
         """
-        all_players = self.sleepwalker_players + self.pilot_players + self.replay_players + self.cpu_players
+        all_players = (
+            self.sleepwalker_players
+            + self.pilot_players
+            + self.mdp_players
+            + self.replay_players
+            + self.cpu_players
+        )
         for player in all_players:
             # Skip players that already have metadata (from random/choice resolution)
             # or don't have a deck path
